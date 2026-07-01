@@ -129,7 +129,10 @@ def grafico_donut_status(df):
     reprovada = int((df['Status']=='reprovada').sum())
     devolvida = int((df['NF_Status']=='D').sum())
     cancelada = int((df['NF_Status']=='C').sum())
-    limbo     = int(((df['Status']=='aprovada') & (~df['NF_Status'].isin(['E','C','D']))).sum())
+    _hoje = pd.Timestamp.today().normalize()
+    _dias = ((_hoje - df['Data_Aprov']).dt.days)
+    limbo = int(((df['Status']=='aprovada') & (~df['NF_Status'].isin(['E','C','D'])) &
+                 (_dias.isna() | (_dias > 1))).sum())
 
     items = [
         ('Entregue',  entregue,  _BLUE),

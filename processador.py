@@ -100,17 +100,19 @@ def gerar_pdf_limbo(data_inicio, data_fim, caminho_pdf="relatorio_limbo.pdf"):
     df_periodo = df[(df['Data_Lancamento'] >= data_inicio) &
                     (df['Data_Lancamento'] <= data_fim)].copy()
 
-    # Limbo: aprovada sem NF válida (não é E, C ou D)
-    df_limbo = df_periodo[
+    # Limbo: aprovada sem NF válida, com mais de 1 dia desde a aprovação
+    hoje = pd.Timestamp.today().normalize()
+    _base_limbo = df_periodo[
         (df_periodo['Status'] == 'aprovada') &
         (~df_periodo['NF_Status'].isin(['E', 'C', 'D']))
     ].copy()
-
-    # Dias desde a aprovação (usando data de hoje como referência)
-    hoje = pd.Timestamp.today().normalize()
-    df_limbo['Dias_desde_aprov'] = df_limbo['Data_Aprov'].apply(
-        lambda d: int((hoje - d).days) if pd.notna(d) else '-'
+    _base_limbo['Dias_desde_aprov'] = _base_limbo['Data_Aprov'].apply(
+        lambda d: int((hoje - d).days) if pd.notna(d) else None
     )
+    # Exclui registros com 0 ou 1 dia desde aprovação (aprovação muito recente)
+    df_limbo = _base_limbo[
+        _base_limbo['Dias_desde_aprov'].isna() | (_base_limbo['Dias_desde_aprov'] > 1)
+    ].copy()
 
     base_indices = [2, 14, 16, 17, 4]  # PDV, Código, Quantidade, Unidade, Solicitação
 
@@ -137,7 +139,9 @@ def gerar_pdf_limbo(data_inicio, data_fim, caminho_pdf="relatorio_limbo.pdf"):
     df_relatorio['Data Aprovação'] = df_limbo['Data_Aprov'].apply(
         lambda d: d.strftime('%d/%m/%Y') if pd.notna(d) else '-'
     )
-    df_relatorio['Dias desde aprovação'] = df_limbo['Dias_desde_aprov']
+    df_relatorio['Dias desde aprovação'] = df_limbo['Dias_desde_aprov'].apply(
+        lambda v: int(v) if v is not None else '-'
+    )
     df_relatorio['Status NF'] = df_limbo['NF_Status']
 
     # Larguras fixas somando 781pt (A4 paisagem 841pt − margens 30+30pt)
@@ -198,7 +202,14 @@ def gerar_relatorio(data_inicio, data_fim):
     entregue = df[(df['Status'] == 'aprovada') & (df['NF_Status'] == 'E')]
     resumo['Reposição Entregue'] = [entregue.shape[0], f"{(entregue.shape[0] / total) * 100:.2f}%"]
 
-    aprovada_sem_nf = df[(df['Status'] == 'aprovada') & (~df['NF_Status'].isin(['E', 'C', 'D']))]
+    _hoje = pd.Timestamp.today().normalize()
+    _dias_aprov = ((_hoje - df['Data_Aprov']).dt.days)
+    _limbo_mask = (
+        (df['Status'] == 'aprovada') &
+        (~df['NF_Status'].isin(['E', 'C', 'D'])) &
+        (_dias_aprov.isna() | (_dias_aprov > 1))
+    )
+    aprovada_sem_nf = df[_limbo_mask]
     resumo['Limbo'] = [aprovada_sem_nf.shape[0], f"{(aprovada_sem_nf.shape[0] / total) * 100:.2f}%"]
 
     pendente = df[df['Status'] == 'pendente']
